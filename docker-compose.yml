@@ -1,0 +1,270 @@
+version: '3.8'
+
+services:
+  # Main Bot Service
+  auto-anime-bot:
+    build: .
+    container_name: auto_anime_bot
+    restart: unless-stopped
+    environment:
+      # Bot Configuration
+      - BOT_TOKEN=${BOT_TOKEN}
+      - BOT_USERNAME=${BOT_USERNAME:-auto_anime_bot}
+      - DEFAULT_CHANNEL=${DEFAULT_CHANNEL}
+      - ADMIN_LOG_CHANNEL=${ADMIN_LOG_CHANNEL}
+      - ADMIN_IDS=${ADMIN_IDS}
+      
+      # API Configuration
+      - ANILIST_CLIENT_ID=${ANILIST_CLIENT_ID}
+      - ANILIST_CLIENT_SECRET=${ANILIST_CLIENT_SECRET}
+      - JIKAN_API=${JIKAN_API:-https://api.jikan.moe/v4}
+      
+      # Database
+      - DATABASE_PATH=/app/data/anime_bot.db
+      
+      # Redis Configuration
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-0}
+      
+      # Performance Settings
+      - MAX_CONCURRENT_DOWNLOADS=${MAX_CONCURRENT_DOWNLOADS:-3}
+      - MAX_CONCURRENT_UPLOADS=${MAX_CONCURRENT_UPLOADS:-2}
+      - DOWNLOAD_TIMEOUT=${DOWNLOAD_TIMEOUT:-3600}
+      - UPLOAD_TIMEOUT=${UPLOAD_TIMEOUT:-1800}
+      - TARGET_SPEED=${TARGET_SPEED:-700}
+      
+      # Storage Limits
+      - MAX_STORAGE_GB=${MAX_STORAGE_GB:-50}
+      - CLEANUP_THRESHOLD_GB=${CLEANUP_THRESHOLD_GB:-45}
+      
+      # Schedule Settings
+      - REQUEST_TIME=${REQUEST_TIME:-18:00}
+      - CLEANUP_HOURS=${CLEANUP_HOURS:-12}
+      - TIMEZONE=${TIMEZONE:-Asia/Kolkata}
+      
+      # Request Limits
+      - MAX_USER_REQUESTS=${MAX_USER_REQUESTS:-5}
+      - MAX_GLOBAL_DAILY_REQUESTS=${MAX_GLOBAL_DAILY_REQUESTS:-100}
+      
+      # Channel Routing
+      - CHANNEL_ROUTING=${CHANNEL_ROUTING:-}
+      
+      # FFmpeg Paths
+      - FFMPEG_PATH=/usr/bin/ffmpeg
+      - FFPROBE_PATH=/usr/bin/ffprobe
+      
+      # Python Settings
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      
+    volumes:
+      # Persist database and data
+      - ./data:/app/data
+      - ./downloads:/app/data/downloads
+      - ./processed:/app/data/processed
+      - ./temp:/app/data/temp
+      - ./logs:/app/data/logs
+      - ./backups:/app/data/backups
+      
+      # Mount custom config if needed
+      - ./config:/app/config:ro
+      
+    ports:
+      # Optional: For webhook mode (if needed)
+      - "${WEBHOOK_PORT:-8443}:8443"
+      
+    networks:
+      - anime_network
+      
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        tag: "{{.ImageName}}|{{.Name}}|{{.ContainerShortID}}"
+        
+    healthcheck:
+      test: ["CMD", "python", "-c", "import aiohttp; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+      
+    depends_on:
+      - redis
+      
+    labels:
+      - "com.docker.compose.project=auto-anime-bot"
+      - "com.docker.compose.service=bot"
+      - "maintainer=BOSSHUB"
+
+  # Redis Service for Task Queue (Optional but recommended)
+  redis:
+    image: redis:7.2-alpine
+    container_name: auto_anime_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - anime_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.docker.compose.project=auto-anime-bot"
+      - "com.docker.compose.service=redis"
+
+  # Optional: PostgreSQL for production database (alternative to SQLite)
+  postgres:
+    image: postgres:16-alpine
+    container_name: auto_anime_postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-auto_anime}
+      - POSTGRES_USER=${POSTGRES_USER:-auto_anime}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-auto_anime_pass}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups/postgres:/backups
+    networks:
+      - anime_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auto_anime"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles:
+      - production
+      - with-postgres
+    labels:
+      - "com.docker.compose.project=auto-anime-bot"
+      - "com.docker.compose.service=postgres"
+
+  # Optional: Prometheus for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: auto_anime_prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    networks:
+      - anime_network
+    profiles:
+      - monitoring
+    labels:
+      - "com.docker.compose.project=auto-anime-bot"
+      - "com.docker.compose.service=prometheus"
+
+  # Optional: Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: auto_anime_grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - anime_network
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+    labels:
+      - "com.docker.compose.project=auto-anime-bot"
+      - "com.docker.compose.service=grafana"
+
+  # Optional: Nginx for reverse proxy (webhook mode)
+  nginx:
+    image: nginx:alpine
+    container_name: auto_anime_nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - anime_network
+    depends_on:
+      - auto-anime-bot
+    profiles:
+      - webhook
+      - production
+    labels:
+      - "com.docker.compose.project=auto-anime-bot"
+      - "com.docker.compose.service=nginx"
+
+  # Optional: Watchtower for automatic updates
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: auto_anime_watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_STOPPED=false
+      - WATCHTOWER_REVIVE_STOPPED=false
+      - WATCHTOWER_SCHEDULE=0 0 4 * * *
+    command: --interval 86400
+    profiles:
+      - auto-update
+    labels:
+      - "com.docker.compose.project=auto-anime-bot"
+      - "com.docker.compose.service=watchtower"
+
+# Networks
+networks:
+  anime_network:
+    driver: bridge
+    name: auto_anime_network
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+
+# Volumes
+volumes:
+  redis_data:
+    name: auto_anime_redis_data
+  postgres_data:
+    name: auto_anime_postgres_data
+  prometheus_data:
+    name: auto_anime_prometheus_data
+  grafana_data:
+    name: auto_anime_grafana_data
