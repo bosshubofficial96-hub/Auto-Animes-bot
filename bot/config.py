@@ -19,8 +19,8 @@ class Config:
     BOT_USERNAME: str = os.getenv("BOT_USERNAME", "auto_anime_bot")
     
     # ==================== CHANNEL CONFIGURATION ====================
-    DEFAULT_CHANNEL: int = int(os.getenv("DEFAULT_CHANNEL", -1003907294981))
-    ADMIN_LOG_CHANNEL: int = int(os.getenv("ADMIN_LOG_CHANNEL", -1003907294981))
+    DEFAULT_CHANNEL: int = int(os.getenv("DEFAULT_CHANNEL", "-1003907294981"))
+    ADMIN_LOG_CHANNEL: int = int(os.getenv("ADMIN_LOG_CHANNEL", "-1003907294981"))
     
     # Dynamic channel routing
     CHANNEL_ROUTING: Dict[str, int] = {}
