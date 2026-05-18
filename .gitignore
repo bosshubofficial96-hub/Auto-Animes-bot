@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Data directories
+data/downloads/*
+data/processed/*
+data/temp/*
+data/logs/*
+data/backups/*
+!data/downloads/.gitkeep
+!data/processed/.gitkeep
+!data/temp/.gitkeep
+!data/logs/.gitkeep
+!data/backups/.gitkeep
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Docker
+*.pid
+
+# Telegram session files
+*.session
+*.session-journal
+
+# Temporary files
+*.tmp
+*.temp
+*.part
